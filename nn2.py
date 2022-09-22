@@ -33,7 +33,9 @@ class DenseLayer(Layer):
         self.neurons = w.shape[1]
 
     def feed_forward(self, input: ndarray) -> tuple[ndarray, ndarray]:
+        # multiply by weights & add a bias
         z = self.w.T @ input + self.b
+        # activate
         a = self.act(z)
         return z, a
 
@@ -133,8 +135,9 @@ class NeuNet:
 
             for x, y in self._get_batch(x_train, y_train, batch_size):
                 dBns, dWns = self._back_prop(x, y)
-                dBn = [dB + dBs for dB, dBs in zip(dBn, dBns)]
-                dWn = [dW + dWs for dW, dWs in zip(dWn, dWns)]
+                for dB, dBs, dW, dWs in zip(dBn, dBns, dWn, dWns):
+                    dB += dBs
+                    dW += dWs
 
             for layer, dB, dW in zip(self.layers, dBn, dWn):
                 layer.w -= learning_rate/batch_size * dW
