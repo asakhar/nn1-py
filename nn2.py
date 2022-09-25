@@ -122,6 +122,7 @@ class NeuNet:
 
         Zn = []
         An = [x.reshape((*x.shape, 1))]
+        y = y.reshape((*y.shape, 1))
 
         for layer in self.layers:
             z, a = layer.feed_forward(An[-1])
@@ -131,11 +132,14 @@ class NeuNet:
         H = len(self.layers)-1
         derivative = self.layers[H].calc_derivative(Zn[H])
         delta = (An[H+1]-y) * derivative  # type: ignore
-        for i in range(H, -1, -1):
+        dBns[H] = delta  # type: ignore
+        dWns[H] = An[H] @ delta.T  # type: ignore
+        for i in range(H-1, -1, -1):
+            derivative = self.layers[i].calc_derivative(Zn[i])
+            delta = self.layers[i+1].calc_delta(delta) * derivative
             dBns[i] = delta  # type: ignore
             dWns[i] = An[i] @ delta.T  # type: ignore
-            derivative = self.layers[i-1].calc_derivative(Zn[i-1])
-            delta = self.layers[i].calc_delta(delta) * derivative
+
         return dBns, dWns
 
     def _get_batch(self, xn: list[ndarray] | ndarray, yn: list[ndarray] | ndarray, batch_size: int):
@@ -192,3 +196,6 @@ class NeuNet:
 
 
 def sigmoid(x): return 1./(1.+np.e**(-x))
+
+
+def tanh(x): return (np.e**x-np.e**(-x))/(np.e**x+np.e**(-x))
