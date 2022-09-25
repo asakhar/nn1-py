@@ -8,8 +8,6 @@ from sympy import Symbol, lambdify
 
 class Layer:
     neurons: int
-    w: ndarray
-    b: ndarray
 
     def feed_forward(self, input: ndarray) -> tuple[ndarray, ndarray]:
         raise NotImplementedError("abstract method")
@@ -17,8 +15,22 @@ class Layer:
     def calc_derivative(self, output: ndarray) -> ndarray:
         raise NotImplementedError("abstract method")
 
+    def calc_delta(self, prev_delta) -> ndarray:
+        raise NotImplementedError("abstract method")
+
+    def get_wshape(self) -> tuple:
+        raise NotImplementedError("abstract method")
+
+    def get_bshape(self) -> tuple:
+        raise NotImplementedError("abstract method")
+
+    def update_weights(self, batch_size, learning_rate, dW, dB):
+        raise NotImplementedError("abstract method")
+
 
 class DenseLayer(Layer):
+    w: ndarray
+    b: ndarray
     act: Callable[[ndarray], ndarray]
     der: Callable[[ndarray], ndarray]
 
@@ -40,6 +52,19 @@ class DenseLayer(Layer):
     def calc_derivative(self, input: ndarray) -> ndarray:
         return self.der(input)
 
+    def calc_delta(self, prev_delta) -> ndarray:
+        return self.w @ prev_delta
+
+    def get_wshape(self) -> tuple:
+        return self.w.shape
+
+    def get_bshape(self) -> tuple:
+        return self.b.shape
+
+    def update_weights(self, batch_size, learning_rate, dW, dB):
+        self.w -= dW * learning_rate / batch_size
+        self.b -= dB * learning_rate / batch_size
+
 
 class LayerModel:
     act: Callable[[ndarray], ndarray]
@@ -56,7 +81,7 @@ class LayerModel:
     def __init__(self, neurons: int, type: str = "dense") -> None:
         self.neurons = neurons
         self.act = lambda x: x
-        self._type = "dense"
+        self._type = type
 
     def build(self, input_shape: int) -> DenseLayer:
         der: Callable[[ndarray], ndarray]
@@ -91,7 +116,7 @@ class NeuNet:
         if len(self.layers) == 0:
             raise ValueError("Invalid output layer")
 
-    def _back_prop(self, x: ndarray, y: ndarray):
+    def _back_prop(self, x: ndarray, y: ndarray) -> tuple[list[ndarray], list[ndarray]]:
         dBns = [np.zeros(0) for _ in self.layers]
         dWns = [np.zeros(0) for _ in self.layers]
 
@@ -107,10 +132,10 @@ class NeuNet:
         derivative = self.layers[H].calc_derivative(Zn[H])
         delta = (An[H+1]-y) * derivative  # type: ignore
         for i in range(H, -1, -1):
-            dBns[i] = delta
-            dWns[i] = An[i] @ delta.T
+            dBns[i] = delta  # type: ignore
+            dWns[i] = An[i] @ delta.T  # type: ignore
             derivative = self.layers[i-1].calc_derivative(Zn[i-1])
-            delta = derivative * (self.layers[i].w @ delta)
+            delta = self.layers[i].calc_delta(delta) * derivative
         return dBns, dWns
 
     def _get_batch(self, xn: list[ndarray] | ndarray, yn: list[ndarray] | ndarray, batch_size: int):
@@ -128,17 +153,17 @@ class NeuNet:
             self.check_inputs(list(x_train))
 
         for _ in range(passes):
-            dBn = [np.zeros(layer.b.shape) for layer in self.layers]
-            dWn = [np.zeros(layer.w.shape) for layer in self.layers]
+            dBn = [np.zeros(layer.get_bshape()) for layer in self.layers]
+            dWn = [np.zeros(layer.get_wshape()) for layer in self.layers]
 
             for x, y in self._get_batch(x_train, y_train, batch_size):
                 dBns, dWns = self._back_prop(x, y)
-                dBn = [dB + dBs for dB, dBs in zip(dBn, dBns)]
-                dWn = [dW + dWs for dW, dWs in zip(dWn, dWns)]
+                for dB, dBs, dW, dWs in zip(dBn, dBns, dWn, dWns):
+                    dB += dBs
+                    dW += dWs
 
             for layer, dB, dW in zip(self.layers, dBn, dWn):
-                layer.w -= learning_rate/batch_size * dW
-                layer.b -= learning_rate/batch_size * dB
+                layer.update_weights(batch_size, learning_rate, dW, dB)
 
     def predict(self, inputs: ndarray) -> ndarray:
         result = [0, inputs.reshape((*inputs.shape, 1))]
@@ -159,7 +184,7 @@ class NeuNet:
         if isinstance(layer, LayerModel):
             self.layers.append(layer.build(prev_shape))
         elif isinstance(layer, Layer):
-            if layer.w.shape[0] != prev_shape:
+            if layer.get_wshape()[0] != prev_shape:
                 raise ValueError("Invalid layer provided")
             self.layers.append(layer)
         else:
