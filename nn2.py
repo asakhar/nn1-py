@@ -2,7 +2,7 @@ from random import choices
 from warnings import warn
 import numpy as np
 from typing import Callable
-from numpy import ndarray
+from numpy import array, ndarray
 from sympy import Predicate, Symbol, lambdify
 from tqdm import trange
 
@@ -174,7 +174,8 @@ class NeuNet:
 
         return dBns, dWns
 
-    def _get_batch(self, xn: list[ndarray] | ndarray, yn: list[ndarray] | ndarray, batch_size: int) -> list[tuple[list[int], ndarray, ndarray]]:
+    def _get_batch(self, xn: list[ndarray] | ndarray, yn: list[ndarray] | ndarray, batch_size: int) \
+            -> list[tuple[list[int], ndarray, ndarray]]:
         "get random batch for given inputs `xn` and expected outputs `yn` of size `batch_size`"
         if len(xn) != len(yn):
             raise ValueError("Mismatched data sizes")
@@ -183,8 +184,15 @@ class NeuNet:
         idxs = list(range(len(xn)))
         return choices(list(zip(idxs, xn, yn)), k=batch_size)   # type: ignore
 
-    def fit(self, x_train: list[ndarray] | ndarray, y_train: list[ndarray] | ndarray, learning_rate: float = 5.0, passes=10, batch_size=6, cross_validation: Callable[[ndarray, ndarray], float] | None = None):
-        "train network with back propagation with provided input data `x_train`, expected output `y_train`, `learning_rate`, number of `passes`, `batch_size` and optional `cross_validation` function"
+    def fit(self,
+            x_train: list[ndarray] | ndarray,
+            y_train: list[ndarray] | ndarray,
+            learning_rate: float = 5.0,
+            passes=10, batch_size=6,
+            cross_validation: Callable[[ndarray, ndarray], float] | None = None):
+        """train network with back propagation with provided input data `x_train`, 
+        expected output `y_train`, `learning_rate`, 
+        number of `passes`, `batch_size` and optional `cross_validation` function"""
         self.check_net()
         if isinstance(x_train, list):
             self.check_inputs(x_train)
@@ -216,6 +224,7 @@ class NeuNet:
                     for i, x, y in self._get_batch(x_train, y_train, min(batch_size*2, len(x_train))):
                         if i in excluded:
                             continue
+                        x = x.reshape((x.shape[0],))
                         yp = self.predict(x)
                         y = y.reshape((*y.shape, 1))
                         total_error += cross_validation(yp, y)
@@ -225,15 +234,21 @@ class NeuNet:
                 for layer, dB, dW in zip(self.layers, dBn, dWn):
                     layer.update_weights(batch_size, learning_rate, dW, dB)
 
-    def predict(self, inputs: ndarray) -> ndarray:
-        "single forward pass"
-        result = [0, inputs.reshape((*inputs.shape, 1))]
-        self.check_net()
-        self.check_inputs([inputs])
+    def predict(self, inputs: ndarray | list[ndarray]) -> ndarray:
+        "single or multiple forward pass"
+        if not isinstance(inputs, list) and len(inputs.shape) == 1:
+            result = [0, inputs.reshape((*inputs.shape, 1))]
+            self.check_net()
+            self.check_inputs([inputs])
 
-        for layer in self.layers:
-            result = layer.feed_forward(result[1])
-        return result[1]
+            for layer in self.layers:
+                result = layer.feed_forward(result[1])
+            return result[1]
+        else:
+            outputs = []
+            for input in inputs:
+                outputs.append(list(self.predict(input)))
+            return array(outputs)
 
     def __init__(self, input_shape: int) -> None:
         self.layers = []
